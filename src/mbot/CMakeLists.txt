@@ -12,6 +12,7 @@ find_package(ament_cmake REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
+find_package( Curses REQUIRED )
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -30,11 +31,17 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+
 add_executable(mbot src/mbot.cpp)
 ament_target_dependencies(mbot rclcpp std_msgs geometry_msgs sensor_msgs mbot_interfaces)
 
+add_executable(teleop src/teleop.cpp)
+target_link_libraries( teleop ${CURSES_LIBRARIES} )
+ament_target_dependencies(teleop rclcpp std_msgs geometry_msgs sensor_msgs mbot_interfaces)
+
 install(TARGETS
   mbot
+  teleop
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

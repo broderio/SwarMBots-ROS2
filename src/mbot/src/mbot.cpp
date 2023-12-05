@@ -287,14 +287,12 @@ void MbotMain::serial_init(const std::string &serial_port)
     serial_port_fd = open(serial_port.c_str(), O_RDWR);
     if (serial_port_fd == -1)
     {
-        perror("Error: Unable to open serial port.\n");
-        return;
+        throw std::runtime_error("Error: Unable to open serial port.");
     }
 
     if (tcgetattr(serial_port_fd, &tty) != 0)
     {
-        perror("Error: Unable to get serial port attributes.\n");
-        return;
+        throw std::runtime_error("Error: Unable to get serial port attributes.");
     }
 
     cfsetospeed(&tty, B921600); // Set output baud rate
@@ -310,8 +308,7 @@ void MbotMain::serial_init(const std::string &serial_port)
     tcflush(serial_port_fd, TCIFLUSH);
     if (tcsetattr(serial_port_fd, TCSANOW, &tty) != 0)
     {
-        perror("Error from tcsetattr");
-        return;
+        throw std::runtime_error("Error: Unable to set serial port attributes.");
     }
 }
 
