@@ -28,7 +28,7 @@ Teleop::Teleop(const std::string & mac_address)
 : Node("teleop")
 {
     // Create publisher
-    robot_vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/mbot/robot_vel", 10);
+    robot_vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/mbot/robot_vel_cmd", 10);
 
     // Start teleop thread
     teleop_th_handle = std::thread(&Teleop::teleop, this);
@@ -47,22 +47,12 @@ void Teleop::teleop()
     // Initialize variables
     float vx = 0.0;
     float wz = 0.0;
-    int ch;
+    char key;
 
     while (rclcpp::ok())
     {
         // Get key pressed
-        ch = getch();
-
-        if (ch == ERR) 
-        {
-            ungetch(ch);
-            publish_vel(0.0, 0.0);
-            usleep(100000);
-            continue;
-        }
-
-        char key = (char)ch;
+        key = getch();
 
         vx = 0.0;
         wz = 0.0;
@@ -119,7 +109,7 @@ int main(int argc, char * argv[])
 {
     rclcpp::init(argc, argv);
 
-    std::string mac_address = "00:00:00:00:00:00";
+    std::string mac_address = "30:30:f9:69:4e:49";
     rclcpp::spin(std::make_shared<Teleop>(mac_address));
     rclcpp::shutdown();
 }

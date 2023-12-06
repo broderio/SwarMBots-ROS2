@@ -6,6 +6,8 @@
 #include <mutex>
 #include <condition_variable>
 
+#include <boost/asio.hpp>
+
 #include "mbot/mbot.hpp"
 
 #include "rclcpp/rclcpp.hpp"
@@ -24,12 +26,14 @@
 #include "mbot_interfaces/msg/motors_vel.hpp"
 
 using namespace std::chrono_literals;
+using boost::asio::ip::tcp;
 
-MbotMain::MbotMain(const std::string &serial_port)
-: Node("mbot_main")
+MbotMain::MbotMain()
+: Node("mbot_main"), io_service_(), socket_(io_service_)
 {
-    // Initialize serial port
-    serial_init(serial_port);
+    // Connect to UART socket publisher
+    tcp::resolver resolver(io_service_);
+    boost::asio::connect(socket_, resolver.resolve("host.docker.internal", "9002"));
 
     // Initialize publishers
     imu_pub = this->create_publisher<sensor_msgs::msg::Imu>("/mbot/imu", 10);
@@ -65,11 +69,12 @@ void MbotMain::timesync_callback(const std_msgs::msg::Header::SharedPtr msg)
     uint8_t mac_addr[6];
     mac_string_to_bytes(msg->frame_id, mac_addr);
 
-    uint8_t out_pkt[sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3];
+    const size_t pkt_len = sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3;
+    uint8_t out_pkt[pkt_len];
     encode_msg((uint8_t*)&out_msg, sizeof(out_msg), MBOT_TIMESYNC, mac_addr, out_pkt);
     {
-        std::lock_guard<std::mutex> lock(serial_mutex);
-        write(serial_port_fd, out_pkt, sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3);
+        std::lock_guard<std::mutex> lock(socket_mutex);
+        boost::asio::write(socket_, boost::asio::buffer(out_pkt, pkt_len));
     }
 }
 
@@ -82,11 +87,12 @@ void MbotMain::motor_vel_callback(const mbot_interfaces::msg::MotorsVel::SharedP
     uint8_t mac_addr[6];
     mac_string_to_bytes(msg->header.frame_id, mac_addr);
 
-    uint8_t out_pkt[sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3];
+    const size_t pkt_len = sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3;
+    uint8_t out_pkt[pkt_len];
     encode_msg((uint8_t*)&out_msg, sizeof(out_msg), MBOT_MOTOR_VEL_CMD, mac_addr, out_pkt);
     {
-        std::lock_guard<std::mutex> lock(serial_mutex);
-        write(serial_port_fd, out_pkt, sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3);
+        std::lock_guard<std::mutex> lock(socket_mutex);
+        boost::asio::write(socket_, boost::asio::buffer(out_pkt, pkt_len));
     }
 }
 
@@ -101,11 +107,12 @@ void MbotMain::robot_vel_callback(const geometry_msgs::msg::TwistStamped::Shared
     uint8_t mac_addr[6];
     mac_string_to_bytes(msg->header.frame_id, mac_addr);
 
-    uint8_t out_pkt[sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3];
+    const size_t pkt_len = sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3;
+    uint8_t out_pkt[pkt_len];
     encode_msg((uint8_t*)&out_msg, sizeof(out_msg), MBOT_VEL_CMD, mac_addr, out_pkt);
     {
-        std::lock_guard<std::mutex> lock(serial_mutex);
-        write(serial_port_fd, out_pkt, sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3);
+        std::lock_guard<std::mutex> lock(socket_mutex);
+        boost::asio::write(socket_, boost::asio::buffer(out_pkt, pkt_len));
     }
 }
 
@@ -118,11 +125,12 @@ void MbotMain::motor_pwm_callback(const mbot_interfaces::msg::Pwm::SharedPtr msg
     uint8_t mac_addr[6];
     mac_string_to_bytes(msg->header.frame_id, mac_addr);
 
-    uint8_t out_pkt[sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3];
+    const size_t pkt_len = sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3;
+    uint8_t out_pkt[pkt_len];
     encode_msg((uint8_t*)&out_msg, sizeof(out_msg), MBOT_MOTOR_PWM_CMD, mac_addr, out_pkt);
     {
-        std::lock_guard<std::mutex> lock(serial_mutex);
-        write(serial_port_fd, out_pkt, sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3);
+        std::lock_guard<std::mutex> lock(socket_mutex);
+        boost::asio::write(socket_, boost::asio::buffer(out_pkt, pkt_len));
     }
 }
 
@@ -137,11 +145,12 @@ void MbotMain::odom_callback(const geometry_msgs::msg::PoseStamped::SharedPtr ms
     uint8_t mac_addr[6];
     mac_string_to_bytes(msg->header.frame_id, mac_addr);
 
-    uint8_t out_pkt[sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3];
+    const size_t pkt_len = sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3;
+    uint8_t out_pkt[pkt_len];
     encode_msg((uint8_t*)&out_msg, sizeof(out_msg), MBOT_ODOMETRY_RESET, mac_addr, out_pkt);
     {
-        std::lock_guard<std::mutex> lock(serial_mutex);
-        write(serial_port_fd, out_pkt, sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3);
+        std::lock_guard<std::mutex> lock(socket_mutex);
+        boost::asio::write(socket_, boost::asio::buffer(out_pkt, pkt_len));
     }
 }   
 
@@ -156,11 +165,12 @@ void MbotMain::enc_callback(const mbot_interfaces::msg::Encoders::SharedPtr msg)
     uint8_t mac_addr[6];
     mac_string_to_bytes(msg->header.frame_id, mac_addr);
 
-    uint8_t out_pkt[sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3];
+    const size_t pkt_len = sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3;
+    uint8_t out_pkt[pkt_len];
     encode_msg((uint8_t*)&out_msg, sizeof(out_msg), MBOT_ENCODERS_RESET, mac_addr, out_pkt);
     {
-        std::lock_guard<std::mutex> lock(serial_mutex);
-        write(serial_port_fd, out_pkt, sizeof(out_msg) + ROS_PKG_LEN + MAC_ADDR_LEN + 3);
+        std::lock_guard<std::mutex> lock(socket_mutex);
+        boost::asio::write(socket_, boost::asio::buffer(out_pkt, pkt_len));
     }
 }
 
@@ -168,40 +178,41 @@ void MbotMain::recv_th()
 {
     while (rclcpp::ok())
     {
-        uint8_t trigger_val = 0x00;
+        uint8_t msg[213];
+        boost::system::error_code error;
+        
+        boost::asio::read(socket_, boost::asio::buffer(msg), error);
 
-        // Wait for the trigger byte
-        while (trigger_val != 0xff)
-        {
-            read(serial_port_fd, &trigger_val, 1);
-        }
+        if (error == boost::asio::error::eof)
+            break; // Connection closed cleanly by peer.
+        else if (error)
+            throw boost::system::system_error(error); // Some other error.
 
-        // Read MAC address and packet length
-        uint8_t mac[6];
-        uint16_t pkt_len;
-        read_mac_address(mac, &pkt_len);
+        // Check for trigger
+        if (msg[0] != SYNC_FLAG)
+            continue;
+
+        // Check for packet length
+        uint16_t pkt_len = ((uint16_t)msg[2] << 8) | (uint16_t)msg[1];
         if (pkt_len != 204)
             continue;
 
-        // Read message and checksum
-        uint8_t* msg_data_serialized = new uint8_t[pkt_len];
-        uint8_t data_checksum = 0;
-        read_message(msg_data_serialized, pkt_len, &data_checksum);
+        // Extract MAC address
+        uint8_t mac[6];
+        std::memcpy(mac, msg + 3, MAC_ADDR_LEN);
+        current_mac = mac_bytes_to_string(mac);
 
-        // Validate message
-        if (!validate_message(msg_data_serialized, pkt_len, data_checksum))
-            continue;
+        // Extract packet
+        uint8_t *pkt = msg + 9;
 
         // Deserialize and publish messages
-        packets_wrapper_t *packets = (packets_wrapper_t *)msg_data_serialized;
-        current_mac = mac_bytes_to_string(mac);
+        packets_wrapper_t *packets = reinterpret_cast<packets_wrapper_t *>(pkt);
         publish_encoders(packets->encoders);
         publish_odom(packets->odom);
         publish_imu(packets->imu);
         publish_mbot_vel(packets->mbot_vel);
         publish_motor_vel(packets->motor_vel);
         publish_motor_pwm(packets->motor_pwm);
-        delete[] msg_data_serialized;
     }
 }
 
@@ -280,38 +291,6 @@ void MbotMain::publish_motor_pwm(const serial_mbot_motor_pwm_t &motor_pwm) const
     motor_pwm_pub->publish(msg);
 }
 
-void MbotMain::serial_init(const std::string &serial_port)
-{
-    // open com port host is connected to
-    struct termios tty;
-    serial_port_fd = open(serial_port.c_str(), O_RDWR);
-    if (serial_port_fd == -1)
-    {
-        throw std::runtime_error("Error: Unable to open serial port.");
-    }
-
-    if (tcgetattr(serial_port_fd, &tty) != 0)
-    {
-        throw std::runtime_error("Error: Unable to get serial port attributes.");
-    }
-
-    cfsetospeed(&tty, B921600); // Set output baud rate
-    cfsetispeed(&tty, B921600); // Set input baud rate
-
-    tty.c_iflag &= ~(IXON | IXOFF | IXANY); // Disable software flow control
-    tty.c_cflag |= (CLOCAL | CREAD);        // Ignore modem control lines, enable receiver
-    tty.c_cflag &= ~CSIZE;                  // Clear the size bits
-    tty.c_cflag |= CS8;                     // 8-bit data
-    tty.c_cflag &= ~PARENB;                 // No parity
-    tty.c_cflag &= ~CSTOPB;                 // 1 stop bit
-
-    tcflush(serial_port_fd, TCIFLUSH);
-    if (tcsetattr(serial_port_fd, TCSANOW, &tty) != 0)
-    {
-        throw std::runtime_error("Error: Unable to set serial port attributes.");
-    }
-}
-
 std::string MbotMain::mac_bytes_to_string(const uint8_t mac_address[6]) const
 {
     std::stringstream ss;
@@ -338,47 +317,11 @@ void MbotMain::mac_string_to_bytes(const std::string & mac_address,
     }
 }
 
-void MbotMain::read_bytes(uint8_t * buffer, 
-                          uint16_t  len) const
-{
-    size_t bytes_read = 0;
-    while (bytes_read < len)
-    {
-        bytes_read += read(serial_port_fd, buffer + bytes_read, len - bytes_read);
-    }
-}
-
-void MbotMain::read_mac_address(uint8_t  * mac_address, 
-                                uint16_t * pkt_len) const
-{
-    uint8_t pkt_len_buf[2];
-    read_bytes(pkt_len_buf, 2);
-    *pkt_len = ((uint16_t)pkt_len_buf[1] << 8) | (uint16_t)pkt_len_buf[0];
-    read_bytes(mac_address, MAC_ADDR_LEN);
-}
-
-void MbotMain::read_message(      uint8_t  * data_serialized, 
-                            const uint16_t & message_len, 
-                                  uint8_t  * data_checksum) const
-{
-    read_bytes(data_serialized, message_len);
-    read_bytes(data_checksum, 1);
-}
-
-bool MbotMain::validate_message(const uint8_t  * const data_serialized, 
-                                const uint16_t &       message_len, 
-                                const uint8_t  &       data_checksum) const
-{
-    uint8_t cs_data = checksum(data_serialized, message_len);
-    bool valid_message = (cs_data == data_checksum);
-    return valid_message;
-}
-
 void MbotMain::encode_msg(const uint8_t  * const in_msg, 
-                          const uint16_t &        in_msg_len, 
-                          const uint16_t &        topic, 
-                          const uint8_t  *        mac_addr, 
-                                uint8_t  *        out_pkt) const
+                          const uint16_t &       in_msg_len, 
+                          const uint16_t &       topic, 
+                          const uint8_t  *       mac_addr, 
+                                uint8_t  *       out_pkt) const
 {
     // add mac address
     out_pkt[0] = SYNC_FLAG;
@@ -420,7 +363,7 @@ uint8_t MbotMain::checksum(const uint8_t * const addends,
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<MbotMain>("/dev/cu.usbserial14110"));
+  rclcpp::spin(std::make_shared<MbotMain>());
   rclcpp::shutdown();
   return 0;
 }

@@ -10,10 +10,7 @@
 #include <type_traits>
 #include <sstream>
 
-#include <termios.h>
-#include <dirent.h>
-#include <unistd.h>
-#include <fcntl.h>
+#include <boost/asio.hpp>
 
 #include "comms.h"
 #include "serial_msg.h"
@@ -34,11 +31,12 @@
 #include "mbot_interfaces/msg/motors_vel.hpp"
 
 using namespace std::chrono_literals;
+using boost::asio::ip::tcp;
 
 class MbotMain : public rclcpp::Node
 {
   public:
-    MbotMain(const std::string &serial_port);
+    MbotMain();
     ~MbotMain();
 
   private:
@@ -68,9 +66,10 @@ class MbotMain : public rclcpp::Node
 
     // UART Handler Thread Functions & Variables
     void recv_th();
-    std::mutex serial_mutex;
+    boost::asio::io_service io_service_;
+    tcp::socket socket_;
     std::thread recv_th_handle;
-    int serial_port_fd;
+    std::mutex socket_mutex;
     std::string current_mac;
 
     // Message Wrapper Struct
@@ -94,26 +93,10 @@ class MbotMain : public rclcpp::Node
 
     // Serial helper Functions
 
-    void serial_init(const std::string & serial_port);
-
     std::string mac_bytes_to_string(const uint8_t mac_address[6]) const;
 
     void mac_string_to_bytes(const std::string & mac_str, 
                                    uint8_t       mac_address[6]) const;
-
-    void read_bytes(uint8_t  * buffer, 
-                    uint16_t   len) const;
-
-    void read_mac_address(uint8_t  * mac_address, 
-                          uint16_t * pkt_len) const;
-
-    void read_message(      uint8_t  * data_serialized, 
-                      const uint16_t & message_len, 
-                            uint8_t  * data_checksum) const;
-
-    bool validate_message(const uint8_t  * const data_serialized, 
-                          const uint16_t &       message_len, 
-                          const uint8_t  &       data_checksum) const;
 
     uint8_t checksum(const uint8_t * const addends, 
                      const int     &       len) const;
