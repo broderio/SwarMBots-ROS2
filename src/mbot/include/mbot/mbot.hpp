@@ -91,8 +91,7 @@ class MbotMain : public rclcpp::Node
     void publish_motor_vel(const serial_mbot_motor_vel_t & motor_vel) const;
     void publish_motor_pwm(const serial_mbot_motor_pwm_t & motor_pwm) const;
 
-    // Serial helper Functions
-
+    // Serialization helper Functions
     std::string mac_bytes_to_string(const uint8_t mac_address[6]) const;
 
     void mac_string_to_bytes(const std::string & mac_str, 

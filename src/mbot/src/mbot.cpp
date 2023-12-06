@@ -7,6 +7,7 @@
 #include <condition_variable>
 
 #include <boost/asio.hpp>
+#include <tf2/LinearMath/Quaternion.h>
 
 #include "mbot/mbot.hpp"
 
@@ -236,7 +237,16 @@ void MbotMain::publish_odom(const serial_pose2D_t &odom) const
     msg.header.frame_id = current_mac;
     msg.pose.position.x = odom.x;
     msg.pose.position.y = odom.y;
-    msg.pose.orientation.z = odom.theta;
+
+    tf2::Quaternion q;
+    q.setRPY(0.0, 0.0, odom.theta);
+
+    msg.pose.orientation.x = q.x();
+    msg.pose.orientation.y = q.y();
+    msg.pose.orientation.z = q.z();
+    msg.pose.orientation.w = q.w();
+
+    // msg.pose.orientation.z = odom.theta;
     odom_pub->publish(msg);
 }
 
