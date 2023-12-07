@@ -15,6 +15,7 @@ find_package(ament_cmake REQUIRED)
 find_package( Curses REQUIRED )
 find_package(rclcpp REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -40,9 +41,13 @@ add_executable(teleop src/teleop.cpp)
 target_link_libraries( teleop ${CURSES_LIBRARIES} )
 ament_target_dependencies(teleop rclcpp std_msgs geometry_msgs sensor_msgs mbot_interfaces)
 
+add_executable(filter src/filter.cpp)
+ament_target_dependencies(filter rclcpp tf2_ros tf2_geometry_msgs std_msgs geometry_msgs sensor_msgs mbot_interfaces)
+
 install(TARGETS
   mbot
   teleop
+  filter
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
