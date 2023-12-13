@@ -24,16 +24,31 @@
 
 using namespace std::chrono_literals;
 
-Teleop::Teleop(const std::string & mac_address)
-: Node("teleop")
+Teleop::Teleop()
+: Node("teleop"), curr_bot(0)
 {
-    // Create publisher
-    robot_vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/mbot/robot_vel_cmd", 10);
+    // Create publishers
+    std::vector<std::string> mbot_topics = get_mbot_topics("/robot_vel_cmd");
+    num_bots = mbot_topics.size();
+    for (const auto & topic : mbot_topics) {
+        RCLCPP_INFO(this->get_logger(), "Creating publisher for %s", topic.c_str());
+        robot_vel_pubs.push_back(this->create_publisher<geometry_msgs::msg::TwistStamped>(topic, 10));
+    }
 
     // Start teleop thread
     teleop_th_handle = std::thread(&Teleop::teleop, this);
+}
 
-    this->mac_address = mac_address;
+std::vector<std::string> Teleop::get_mbot_topics(std::string topic_name)
+{
+    std::vector<std::string> mbot_topics;
+    auto topics = this->get_topic_names_and_types();
+    for (const auto & topic : topics) {
+        if (topic.first.find("/mbot") == 0 && topic.first.find(topic_name) != std::string::npos) {
+            mbot_topics.push_back(topic.first);
+        }
+    }
+    return mbot_topics;
 }
 
 void Teleop::teleop()
@@ -60,6 +75,14 @@ void Teleop::teleop()
         {
             publish_vel(0.0, 0.0);
             break;
+        }
+
+        // Change robot
+        if (key <= '8' && key >= '1')
+        {
+            publish_vel(0.0, 0.0);
+            int new_bot = key - '1';
+            curr_bot = (new_bot < num_bots) ? new_bot : curr_bot;
         }
 
         // Update vx and wz
@@ -96,20 +119,17 @@ void Teleop::publish_vel(const float & vx, const float & wz)
     // Create message
     auto msg = geometry_msgs::msg::TwistStamped();
     msg.header.stamp = this->now();
-    msg.header.frame_id = mac_address;
     msg.twist.linear.x = vx;
     msg.twist.linear.y = 0.0;
     msg.twist.angular.z = wz;
 
     // Publish message
-    robot_vel_pub->publish(msg);
+    robot_vel_pubs[curr_bot]->publish(msg);
 }
 
 int main(int argc, char * argv[])
 {
-    rclcpp::init(argc, argv);
-
-    std::string mac_address = "30:30:f9:69:4e:49";
-    rclcpp::spin(std::make_shared<Teleop>(mac_address));
+    rclcpp::init(argc, argv);;
+    rclcpp::spin(std::make_shared<Teleop>());
     rclcpp::shutdown();
 }

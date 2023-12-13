@@ -13,6 +13,7 @@
 #include "mbot/mbot.hpp"
 
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp/executors/multi_threaded_executor.hpp"
 
 // ROS2 message types
 #include "std_msgs/msg/header.hpp"
@@ -47,18 +48,27 @@ MbotMain::MbotMain()
     while (std::getline(macs_file, mac_address))
     {
         if (mac_address[0] != '#')
-            mbot_nodes[mac_address] = std::make_shared<MbotNode>("mbot-"+std::to_string(i++), 
+            mbot_nodes[mac_address] = std::make_shared<MbotNode>("mbot"+std::to_string(i++), 
                                                                  mac_address.substr(0, 17),
                                                                  this);
     }
 
-    // Spin MbotNodes
-    for (auto &mbot_node : mbot_nodes)
-        RCLCPP_INFO(this->get_logger(), "Spinning node %s with MAC: %s", mbot_node.second->name.c_str(), mbot_node.first.c_str());
-        rclcpp::spin(mbot_node.second);
+}
+
+void MbotMain::spin()
+{
+    // Add nodes to executor
+    rclcpp::executors::MultiThreadedExecutor executor;
+    for (auto &mbot_node : mbot_nodes) {
+        RCLCPP_INFO(mbot_node.second->get_logger(), "Spinning node %s with MAC: %s", mbot_node.second->name.c_str(), mbot_node.first.c_str());
+        executor.add_node(mbot_node.second);
+    }
     
     // Start UART Handler Thread
     recv_th_handle = std::thread(&MbotMain::recv_th, this);
+
+    // Spin executor
+    executor.spin();
 }
 
 MbotMain::~MbotMain()
@@ -71,15 +81,19 @@ void MbotMain::recv_th()
 {
     while (rclcpp::ok())
     {
-        uint8_t msg[213];
+        uint8_t msg[214];
         boost::system::error_code error;
         
-        boost::asio::read(socket_, boost::asio::buffer(msg), error);
+        size_t len = 0;
+        while (len < 214) {
+            size_t bytes_read = boost::asio::read(socket_, boost::asio::buffer(msg + len, 214 - len), error);
+            len += bytes_read;
 
-        if (error == boost::asio::error::eof)
-            break; // Connection closed cleanly by peer.
-        else if (error)
-            throw boost::system::system_error(error); // Some other error.
+            if (error == boost::asio::error::eof)
+                break; // Connection closed cleanly by peer.
+            else if (error)
+                throw boost::system::system_error(error); // Some other error.
+        }
 
         // Check for trigger
         if (msg[0] != SYNC_FLAG)
@@ -94,12 +108,20 @@ void MbotMain::recv_th()
         uint8_t mac[6];
         std::memcpy(mac, msg + 3, MAC_ADDR_LEN);
         std::string mac_str = mac_bytes_to_string(mac);
+        if (mbot_nodes.find(mac_str) == mbot_nodes.end())
+            continue;
 
-        // Extract packet
+        // Extract packet   
         uint8_t *pkt = msg + 9;
+        uint8_t checksum = msg[9 + pkt_len];
+
+        // Validate packet
+        if (!validate_message(pkt, pkt_len, checksum))
+            continue;
 
         // Deserialize and publish messages
         MbotNode &mbot_node = *mbot_nodes[mac_str];
+        RCLCPP_INFO(mbot_node.get_logger(), "Received packet for MAC: %s", mac_str.c_str());
         packets_wrapper_t *packets = reinterpret_cast<packets_wrapper_t *>(pkt);
         mbot_node.publish_encoders(packets->encoders);
         mbot_node.publish_odom(packets->odom);
@@ -108,18 +130,6 @@ void MbotMain::recv_th()
         mbot_node.publish_motor_vel(packets->motor_vel);
         mbot_node.publish_motor_pwm(packets->motor_pwm);
     }
-}
-
-std::string MbotMain::mac_bytes_to_string(const uint8_t mac_address[6]) const
-{
-    std::stringstream ss;
-    for (int i = 0; i < 6; ++i)
-    {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(mac_address[i]);
-        if (i != 5)
-            ss << ':';
-    }
-    return ss.str();
 }
 
 MbotMain::MbotNode::MbotNode(std::string name, std::string mac_address, MbotMain* mbot_main)
@@ -265,7 +275,7 @@ void MbotMain::MbotNode::publish_encoders(const serial_mbot_encoders_t &encoders
     mbot_interfaces::msg::Encoders msg;
     msg.header.stamp.sec = encoders.utime / 1e6;
     msg.header.stamp.nanosec = (encoders.utime % (int64_t)1e6) * 1e3;
-    msg.header.frame_id = this->name;
+    msg.header.frame_id = "root";
     msg.delta_time = encoders.delta_time;
     std::memcpy(msg.ticks.data(), encoders.ticks, sizeof(int64_t) * 3);
     std::memcpy(msg.delta_ticks.data(), encoders.delta_ticks, sizeof(int32_t) * 3);
@@ -277,7 +287,7 @@ void MbotMain::MbotNode::publish_odom(const serial_pose2D_t &odom) const
     geometry_msgs::msg::PoseStamped msg;
     msg.header.stamp.sec = odom.utime / 1e6;
     msg.header.stamp.nanosec = (odom.utime % (int64_t)1e6) * 1e3;
-    msg.header.frame_id = this->name;
+    msg.header.frame_id = "root";
     msg.pose.position.x = odom.x;
     msg.pose.position.y = odom.y;
 
@@ -289,7 +299,6 @@ void MbotMain::MbotNode::publish_odom(const serial_pose2D_t &odom) const
     msg.pose.orientation.z = q.z();
     msg.pose.orientation.w = q.w();
 
-    // msg.pose.orientation.z = odom.theta;
     odom_pub->publish(msg);
 }
 
@@ -298,17 +307,17 @@ void MbotMain::MbotNode::publish_imu(const serial_mbot_imu_t &imu) const
     sensor_msgs::msg::Imu msg;
     msg.header.stamp.sec = imu.utime / 1e6;
     msg.header.stamp.nanosec = (imu.utime % (int64_t)1e6) * 1e3;
-    msg.header.frame_id = this->name;
+    msg.header.frame_id = "root";
     msg.linear_acceleration.x = imu.accel[0];
     msg.linear_acceleration.y = imu.accel[1];
     msg.linear_acceleration.z = imu.accel[2];
     msg.angular_velocity.x = imu.gyro[0];
     msg.angular_velocity.y = imu.gyro[1];
     msg.angular_velocity.z = imu.gyro[2];
-    msg.orientation.x = imu.angles_quat[0];
-    msg.orientation.y = imu.angles_quat[1];
-    msg.orientation.z = imu.angles_quat[2];
-    msg.orientation.w = imu.angles_quat[3];
+    msg.orientation.w = imu.angles_quat[0];
+    msg.orientation.x = imu.angles_quat[1];
+    msg.orientation.y = imu.angles_quat[2];
+    msg.orientation.z = imu.angles_quat[3];
     imu_pub->publish(msg);
 }
 
@@ -317,7 +326,7 @@ void MbotMain::MbotNode::publish_mbot_vel(const serial_twist2D_t &mbot_vel) cons
     geometry_msgs::msg::TwistStamped msg;
     msg.header.stamp.sec = mbot_vel.utime / 1e6;
     msg.header.stamp.nanosec = (mbot_vel.utime % (int64_t)1e6) * 1e3;
-    msg.header.frame_id = this->name;
+    msg.header.frame_id = "root";
     msg.twist.linear.x = mbot_vel.vx;
     msg.twist.linear.y = mbot_vel.vy;
     msg.twist.angular.z = mbot_vel.wz;
@@ -329,7 +338,7 @@ void MbotMain::MbotNode::publish_motor_vel(const serial_mbot_motor_vel_t &motor_
     mbot_interfaces::msg::MotorsVel msg;
     msg.header.stamp.sec = motor_vel.utime / 1e6;
     msg.header.stamp.nanosec = (motor_vel.utime % (int64_t)1e6) * 1e3;
-    msg.header.frame_id = this->name;
+    msg.header.frame_id = "root";
     std::memcpy(msg.velocity.data(), motor_vel.velocity, sizeof(float) * 3);
     motor_vel_pub->publish(msg);
 }
@@ -339,13 +348,13 @@ void MbotMain::MbotNode::publish_motor_pwm(const serial_mbot_motor_pwm_t &motor_
     mbot_interfaces::msg::Pwm msg;
     msg.header.stamp.sec = motor_pwm.utime / 1e6;
     msg.header.stamp.nanosec = (motor_pwm.utime % (int64_t)1e6) * 1e3;
-    msg.header.frame_id = this->name;
+    msg.header.frame_id = "root";
     std::memcpy(msg.pwm.data(), motor_pwm.pwm, sizeof(float) * 3);
     motor_pwm_pub->publish(msg);
 }
 
-void MbotMain::MbotNode::mac_string_to_bytes(const std::string & mac_address, 
-                                         uint8_t       mac_bytes[6]) const
+void mac_string_to_bytes(const std::string & mac_address, 
+                                         uint8_t       mac_bytes[6])
 {
     std::stringstream ss(mac_address);
     int i = 0;
@@ -358,11 +367,32 @@ void MbotMain::MbotNode::mac_string_to_bytes(const std::string & mac_address,
     }
 }
 
-void MbotMain::MbotNode::encode_msg(const uint8_t  * const in_msg, 
+std::string mac_bytes_to_string(const uint8_t mac_address[6])
+{
+    std::stringstream ss;
+    for (int i = 0; i < 6; ++i)
+    {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(mac_address[i]);
+        if (i != 5)
+            ss << ':';
+    }
+    return ss.str();
+}
+
+bool validate_message(const uint8_t  * const data_serialized, 
+                      const uint16_t &       message_len, 
+                      const uint8_t  &       data_checksum)
+{
+    uint8_t cs_data = checksum(data_serialized, message_len);
+    int valid_message = (cs_data == data_checksum);
+    return valid_message;
+}
+
+void encode_msg(const uint8_t  * const in_msg, 
                           const uint16_t &       in_msg_len, 
                           const uint16_t &       topic, 
                           const uint8_t  *       mac_addr, 
-                                uint8_t  *       out_pkt) const
+                                uint8_t  *       out_pkt)
 {
     // add mac address
     out_pkt[0] = SYNC_FLAG;
@@ -390,8 +420,8 @@ void MbotMain::MbotNode::encode_msg(const uint8_t  * const in_msg,
     delete[] cs2_addends;
 }
 
-uint8_t MbotMain::MbotNode::checksum(const uint8_t * const addends, 
-                           const int     &       len) const
+uint8_t checksum(const uint8_t * const addends, 
+                           const int     &       len)
 {
     int sum = 0;
     for (int i = 0; i < len; i++)
@@ -404,7 +434,8 @@ uint8_t MbotMain::MbotNode::checksum(const uint8_t * const addends,
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  auto mbot_main = std::make_shared<MbotMain>();
+  MbotMain mbot_main;
+  mbot_main.spin();
   rclcpp::shutdown();
   return 0;
 }

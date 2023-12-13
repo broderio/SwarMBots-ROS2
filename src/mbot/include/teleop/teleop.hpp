@@ -26,12 +26,15 @@ using namespace std::chrono_literals;
 class Teleop : public rclcpp::Node 
 {
 public:
-    Teleop(const std::string & mac_address);
+    Teleop();
 private:
     void teleop();
+    std::vector<std::string> get_mbot_topics(std::string topic_name);
     void publish_vel(const float & vx, const float & wz);
 
-    std::string mac_address;
-    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr robot_vel_pub;
+    int curr_bot;
+    int num_bots;
+
+    std::vector<rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr> robot_vel_pubs;
     std::thread teleop_th_handle;
 };

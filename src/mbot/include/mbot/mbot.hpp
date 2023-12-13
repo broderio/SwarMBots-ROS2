@@ -40,6 +40,8 @@ class MbotMain
     MbotMain();
     ~MbotMain();
 
+    void spin();
+
   private:
     // UART Handler Thread Functions & Variables
     void recv_th();
@@ -59,9 +61,6 @@ class MbotMain
         serial_mbot_motor_vel_t motor_vel;
         serial_mbot_motor_pwm_t motor_pwm;
     };
-
-    // Serialization helper Functions
-    std::string mac_bytes_to_string(const uint8_t mac_address[6]) const;
 
     class MbotNode : public rclcpp::Node
     {
@@ -104,21 +103,27 @@ class MbotMain
         void publish_mbot_vel(const serial_twist2D_t & mbot_vel) const;
         void publish_motor_vel(const serial_mbot_motor_vel_t & motor_vel) const;
         void publish_motor_pwm(const serial_mbot_motor_pwm_t & motor_pwm) const;
-
-        // Serialization Helpers
-        void mac_string_to_bytes(const std::string & mac_str, 
-                                   uint8_t       mac_address[6]) const;
-
-        uint8_t checksum(const uint8_t * const addends, 
-                        const int     &       len) const;
-                    
-        void encode_msg(const uint8_t  * const in_msg, 
-                        const uint16_t &       in_msg_len,
-                        const uint16_t &       topic, 
-                        const uint8_t          mac_address[6],
-                              uint8_t  *       out_pkt) const;
     };
 
     // Map of MAC addresses to MbotNode objects
     std::unordered_map<std::string, std::shared_ptr<MbotNode>> mbot_nodes;
 };
+
+// Serialization helper Functions
+std::string mac_bytes_to_string(const uint8_t mac_address[6]);
+
+bool validate_message(const uint8_t  * const data_serialized, 
+                      const uint16_t &       message_len, 
+                      const uint8_t  &       data_checksum);
+
+void mac_string_to_bytes(const std::string & mac_str, 
+                                   uint8_t       mac_address[6]);
+
+uint8_t checksum(const uint8_t * const addends, 
+                const int     &       len);
+            
+void encode_msg(const uint8_t  * const in_msg, 
+                const uint16_t &       in_msg_len,
+                const uint16_t &       topic, 
+                const uint8_t          mac_address[6],
+                      uint8_t  *       out_pkt);
