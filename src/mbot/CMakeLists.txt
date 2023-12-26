@@ -44,10 +44,14 @@ ament_target_dependencies(teleop rclcpp std_msgs geometry_msgs sensor_msgs mbot_
 add_executable(filter src/filter.cpp)
 ament_target_dependencies(filter rclcpp tf2_ros tf2_geometry_msgs std_msgs geometry_msgs sensor_msgs mbot_interfaces)
 
+add_executable(scratch_bridge src/scratch_bridge.cpp)
+ament_target_dependencies(scratch_bridge rclcpp tf2_ros tf2_geometry_msgs std_msgs geometry_msgs sensor_msgs mbot_interfaces)
+
 install(TARGETS
   mbot
   teleop
   filter
+  scratch_bridge
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
