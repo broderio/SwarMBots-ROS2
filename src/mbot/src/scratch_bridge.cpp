@@ -63,7 +63,14 @@ ScratchBridge::ScratchBridge()
 
     RCLCPP_INFO(this->get_logger(), "ScratchBridge socket handshake accepted");
 
-    mbot_msg.atGoal = true;
+    mbot_msg = {
+        .x = 0.0,
+        .y = 0.0,
+        .heading = 0.0,
+        .atGoal = true,
+        .nearestObstacleDist = 0.0,
+        .nearestObstacleAngle = 0.0,
+    };
 
     // Create publisher
     robot_vel_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("/mbot0/robot_vel_cmd", 10);
@@ -168,6 +175,7 @@ void ScratchBridge::process_messages()
     std::stringstream ss;
     ss << "MB," << mbot_msg.x << "," << mbot_msg.y << "," << mbot_msg.heading << "," << mbot_msg.atGoal << "\n";
     std::string msg = ss.str();
+    RCLCPP_INFO(this->get_logger(), "Sending message: %s", msg.c_str());
     ws_.write(net::buffer(msg));
 }
 
@@ -179,7 +187,6 @@ void ScratchBridge::drive_at(const ScratchDriveAtCmd &cmd)
     robot_vel_cmd.twist.linear.x = cmd.lin;
     robot_vel_cmd.twist.angular.z = cmd.ang;
     robot_vel_pub->publish(robot_vel_cmd);
-    RCLCPP_INFO(this->get_logger(), "Drive: lin: %f, ang: %f", cmd.lin, cmd.ang);
 }
 
 // Take Scratch Drive To command and set new goal
